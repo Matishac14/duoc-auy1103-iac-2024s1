@@ -1,6 +1,6 @@
 output "environment" {
   description = "The environment for the deployment (e.g., dev, prod)"
-  value       = var.enviroment
+  value       = var.environment
 }
 output "vpc_id" {
   description = "The ID of the VPC"

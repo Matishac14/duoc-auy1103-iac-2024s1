@@ -1,0 +1,16 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!terraform.tfvars.example
+
+# Sensible
+.env
+auth_token.txt
+
+# OS
+.DS_Store
+Thumbs.db
+.idea/
+*.tfvars
