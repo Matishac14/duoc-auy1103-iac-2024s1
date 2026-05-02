@@ -1,8 +1,8 @@
 data "aws_availability_zones" "available" {
   state = "available"
-
 }
-#crear VPC con subnets públicas y privadas
+
+# 1. Redes: VPC
 module "vpc" {
   source = "terraform-aws-modules/vpc/aws"
 
@@ -14,50 +14,62 @@ module "vpc" {
   private_subnets = var.vpc_private_subnets
   public_subnets  = var.vpc_public_subnets
 
-  enable_nat_gateway = true
-  single_nat_gateway = true
+  enable_nat_gateway   = true
+  single_nat_gateway   = true
   enable_dns_hostnames = true
-  enable_dns_support = true
+  enable_dns_support   = true
+
   tags = {
     Terraform   = "true"
-    Environment = var.enviroment
+    Environment = var.environment
   }
 }
-#crear grupo de seguridad para permitir tráfico ALB
+
+# 2. Seguridad: SG para el ALB (Entrada Pública)
 module "alb_sg" {
-  source = "terraform-aws-modules/security-group/aws//modules/http-80"
-  name        = "alb-sg"
-  description = "Security group for alb with HTTP ports open within VPC"
+  source      = "terraform-aws-modules/security-group/aws//modules/http-80"
+  name        = "${var.environment}-alb-sg"
+  description = "Permite tráfico HTTP desde internet"
   vpc_id      = module.vpc.vpc_id
 
   ingress_cidr_blocks = ["0.0.0.0/0"]
 }
-#crear grupo de seguridad para permitir tráfico EC2 (HTTP publico y SSH a my ip publica)
-module "ec2_sg" {
-  source = "terraform-aws-modules/security-group/aws"
 
-  name        = "ec2-sg"
-  description = "SG que permite HTTP a todos y SSH solo a mi IP"
+# 3. Seguridad: SG para EC2 (Zero Trust - Solo desde ALB)
+module "ec2_sg" {
+  source      = "terraform-aws-modules/security-group/aws"
+  name        = "${var.environment}-ec2-sg"
+  description = "Permite tráfico HTTP solo desde el ALB y SSH desde mi IP"
   vpc_id      = module.vpc.vpc_id
 
-  ingress_cidr_blocks = ["0.0.0.0/0"]   # CIDR para reglas predefinidas
-  ingress_rules       = ["http-80-tcp"] # Regla predefinida para HTTP puerto 80
+  # Regla restrictiva: Solo el ALB puede hablar con las EC2 por el puerto 80
+  ingress_with_source_security_group_id = [
+    {
+      from_port                = 80
+      to_port                  = 80
+      protocol                 = "tcp"
+      description              = "HTTP desde ALB"
+      source_security_group_id = module.alb_sg.security_group_id
+    }
+  ]
 
+  # SSH restringido a tu IP
   ingress_with_cidr_blocks = [
     {
       from_port   = 22
       to_port     = 22
       protocol    = "tcp"
-      description = "SSH acceso solo a mi IP"
+      description = "SSH acceso administrativo"
       cidr_blocks = var.my_public_ip
     }
   ]
+
   egress_rules = ["all-all"]
 }
-#crear instancias EC2 en subredes privadas
 
+# 4. Cómputo: EC2 en Subredes Privadas
 locals {
-  instance_type = var.enviroment == "prod" ? "t3.small" : "t3.micro"
+  instance_type = var.environment == "prod" ? "t3.small" : "t3.micro"
 }
 
 data "aws_ami" "amazon_linux" {
@@ -81,39 +93,33 @@ resource "aws_instance" "web" {
     image = var.docker_images[count.index]
   })
 
-
   tags = {
-    Name = "${var.enviroment}-ec2-${count.index + 1}"
+    Name = "${var.environment}-ec2-${count.index + 1}"
   }
 }
 
-
-# ALB en subredes públicas y asociado correctamente al SG
+# 5. Balanceo: ALB
 resource "aws_lb" "this" {
-  name               = "cheesee-${var.enviroment}-alb"
+  name               = "cheesee-${var.environment}-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [module.alb_sg.security_group_id] # Asociación del SG creado
+  security_groups    = [module.alb_sg.security_group_id]
   subnets            = module.vpc.public_subnets
 
   tags = {
-    Name = "cheesee-${var.enviroment}-alb"
+    Name = "cheesee-${var.environment}-alb"
   }
 }
 
 resource "aws_lb_target_group" "this" {
-  name     = "cheesee-${var.enviroment}-tg"
+  name     = "cheesee-${var.environment}-tg"
   port     = 80
   protocol = "HTTP"
   vpc_id   = module.vpc.vpc_id
 
   health_check {
-    path                = "/"
-    matcher             = "200-399"
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
+    path    = "/"
+    matcher = "200-399"
   }
 }
 

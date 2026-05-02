@@ -1,4 +1,4 @@
-enviroment          = "prod"
+environment         = "prod"
 aws_region          = "us-east-1"
 vpc_name            = "the-cheese-factory-vpc"
 vpc_cidr            = "10.99.0.0/16"
